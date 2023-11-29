@@ -54,36 +54,34 @@ const hasGetUserMedia = () => !!navigator.mediaDevices?.getUserMedia;
 // If webcam supported, add event listener to button for when user
 // wants to activate it.
 if (hasGetUserMedia()) {
-  document.addEventListener("keydown", enableCam);
+  document.addEventListener("click", enableCam);
 } else {
   console.warn("getUserMedia() is not supported by your browser");
 }
 
 // Enable the live webcam view and start detection.
 function enableCam(event) {
-  if (event.code === 'Space' || event.key === ' ') {
-    if (!handLandmarker) {
-      console.log("Wait! objectDetector not loaded yet.");
-      return;
-    }
-
-    if (webcamRunning === true) {
-      webcamRunning = false;
-    } else {
-      webcamRunning = true;
-    }
-
-    // getUsermedia parameters.
-    const constraints = {
-      video: true
-    };
-
-    // Activate the webcam stream.
-    navigator.mediaDevices.getUserMedia(constraints).then((stream) => {
-      video.srcObject = stream;
-      video.addEventListener("loadeddata", predictWebcam);
-    });
+  if (!handLandmarker) {
+    console.log("Wait! objectDetector not loaded yet.");
+    return;
   }
+
+  if (webcamRunning === true) {
+    webcamRunning = false;
+  } else {
+    webcamRunning = true;
+  }
+
+  // getUsermedia parameters.
+  const constraints = {
+    video: true
+  };
+
+  // Activate the webcam stream.
+  navigator.mediaDevices.getUserMedia(constraints).then((stream) => {
+    video.srcObject = stream;
+    video.addEventListener("loadeddata", predictWebcam);
+  });
 }
 
 let lastVideoTime = -1;
@@ -92,7 +90,7 @@ let results = undefined;
 async function predictWebcam() {
   canvasElement.style.width = '100vw';
   canvasElement.style.height = '100vh';
-  canvasElement.style.background = 'blue';
+  canvasElement.style.background = '#6b92b9';
   canvasElement.style.display = 'block';
   canvasElement.width = window.innerWidth;
   canvasElement.height = window.innerHeight;
@@ -107,7 +105,7 @@ async function predictWebcam() {
   canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
   if (results.landmarks) {
     drawTheStuff(results.landmarks);
-    drawTheStuff2(results.landmarks);
+    //drawTheStuff2(results.landmarks);
   }
   canvasCtx.restore();
 
@@ -117,80 +115,97 @@ async function predictWebcam() {
   }
 }
 
-function drawTheStuff(resultLandmarks) {
+function drawTheStuff2(resultLandmarks) {
   for (const landmarks of resultLandmarks) {
-    /*
     drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {
       color: "#FFFFFF",
       lineWidth: 5
     });
-    */
-    //    drawLandmarks(canvasCtx, landmarks, { color: "#FF0000", lineWidth: 2 });
+    drawLandmarks(canvasCtx, landmarks, { color: "#FF0000", lineWidth: 2 });
   }
 }
 
-const numParticles = 500; // Number of particles
+const numLandmarks = 21;
+const numParticles = 2000; // Number of particles
 const maxX = window.innerWidth; // Maximum X coordinate
 const maxY = window.innerHeight; // Maximum Y coordinate
-const maxSize = 5;
+const maxGrownSize = 25;
+const maxNaturalSize = 7;
 const minSize = 1;
 
 // Create an array of N particles with random coordinates
 const particlesArray = Array.from({ length: numParticles }, () => ({
   x: Math.random() * maxX,
   y: Math.random() * maxY,
-  size: Math.random() * (maxSize - minSize) + minSize,
+  size: Math.random() * (maxNaturalSize - minSize) + minSize,
   drawnToUser: Math.random() < 0.5 ? true : false,
-  landMark: Math.floor(Math.random() * 21),
+  landMark: Math.floor(Math.random() * numLandmarks),
   hand: Math.floor(Math.random() * 2),
+  maxSize: Math.random() * (maxGrownSize - this.size) + this.size,
+  color: `rgba(255, 255, 255, ${Math.random()})`,
 }));
 
-let gravity = 1;
-let smoothedWind = 0;
-let smoothingFactor = 0.1;
-
-
-function drawTheStuff2(resultLandmarks) {
+function drawTheStuff(resultLandmarks) {
   particlesArray.forEach(particle => {
     canvasCtx.beginPath();
     canvasCtx.arc(particle.x, particle.y, particle.size, 0, 2 * Math.PI);
-    canvasCtx.fillStyle = 'white'; // Change the color as needed
+    canvasCtx.fillStyle = particle.color;
     canvasCtx.fill();
     canvasCtx.closePath();
   });
-  applyPhysics(particlesArray, gravity, smoothedWind, resultLandmarks);
+  applyPhysics(particlesArray, resultLandmarks);
 }
 
-
-function applyPhysics(particles, gravity, wind, resultLandmarks) {
+let angle = 0;
+function applyPhysics(particles, resultLandmarks) {
+  angle += 0.01;
   particles.forEach(particle => {
-    // Apply gravity
-    particle.y += gravity;
+    applyGravityAndWind(particle);
+    nudgeParticleTowardsChosenLandmark(particle, resultLandmarks)
+    resetParticleIfOffScreen(particle);
+  });
+}
 
-    // Apply random sideways motion for wind
-    smoothedWind = (1 - smoothingFactor) * smoothedWind + smoothingFactor * (Math.random() - 0.5);
-    particle.x += smoothedWind;
+function applyGravityAndWind(particle) {
+  particle.y += Math.cos(angle + particle.size) + 1;
+  particle.x += Math.sin(angle) * 2;
+}
 
-    // reset a particle if it has fallen off screen.
-    if (particle.y > maxY) {
+function resetParticleIfOffScreen(particle) {
+  // reset a particle if it has fallen off screen.
+  if (particle.y > maxY || particle.x > maxX) {
+    if (Math.random() < 0.6) {
       particle.x = Math.random() * maxX;
       particle.y = 0;
-      particle.size = Math.random() * (maxSize - minSize) + minSize;
     }
-
-    let nudgeFactor = 5;
-    if (particle.drawnToUser === true) {
-      resultLandmarks.forEach((hand, index) => {
-        if (particle.hand == index) {
-          const deltaX = (hand[particle.landMark].x * window.innerWidth) - particle.x;
-          const deltaY = (hand[particle.landMark].y * window.innerHeight) - particle.y;
-          const distance = Math.sqrt(deltaX ** 2 + deltaY ** 2);
-
-          // Move the particle closer to the landmark
-          particle.x += (deltaX / distance) * (Math.random() * 4) * nudgeFactor;
-          particle.y += (deltaY / distance) * (Math.random() * 4) * nudgeFactor;
-        }
-      });
+    else {
+      if (Math.sin(angle) > 0) {
+        particle.x = -5;
+      }
+      else {
+        particle.x = maxX;
+      }
+      particle.y = Math.random() * maxY;
     }
-  });
+    particle.size = Math.random() * (maxNaturalSize - minSize) + minSize;
+  }
+}
+
+function nudgeParticleTowardsChosenLandmark(particle, resultLandmarks) {
+  let nudgeFactor = 15;
+  if (particle.drawnToUser === true) {
+    resultLandmarks.forEach((hand, index) => {
+      if (particle.hand == index) {
+        const deltaX = (hand[particle.landMark].x * window.innerWidth) - particle.x;
+        const deltaY = (hand[particle.landMark].y * window.innerHeight) - particle.y;
+        const distance = Math.sqrt(deltaX ** 2 + deltaY ** 2);
+
+        // Move the particle closer to the landmark
+        particle.x += (deltaX / distance) * (Math.random()) * nudgeFactor;
+        particle.y += (deltaY / distance) * (Math.random()) * nudgeFactor;
+        particle.size < particle.maxSize ? particle.size += 0. : false;
+        //        particle.size += 1;
+      }
+    });
+  }
 }
