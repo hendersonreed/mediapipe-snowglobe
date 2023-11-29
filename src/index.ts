@@ -11,9 +11,12 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+const landmarkerType = 'hands'; // could be hands, face, or pose
 
 import {
   HandLandmarker,
+  FaceLandmarker,
+  PoseLandmarker,
   FilesetResolver
 } from "@mediapipe/tasks-vision";
 
@@ -125,7 +128,29 @@ function drawTheStuff2(resultLandmarks) {
   }
 }
 
-const numLandmarks = 21;
+/*
+ * this is agnostic to the type of landmark, as long as we set 
+ * "numLandmarks" properly according to the landmarking model
+ */
+
+let numLandmarks = 0;
+switch (landmarkerType) {
+  case 'hands':
+    numLandmarks = 21;
+    break;
+  case 'face':
+    numLandmarks = 21;
+    break;
+  case 'pose':
+    numLandmarks = 21;
+    break;
+  default:
+    console.log("error: incorrectly configured landmarker type.");
+    break;
+}
+
+const numSupportedObjects = 2;
+
 const numParticles = 2000; // Number of particles
 const maxX = window.innerWidth; // Maximum X coordinate
 const maxY = window.innerHeight; // Maximum Y coordinate
@@ -139,8 +164,8 @@ const particlesArray = Array.from({ length: numParticles }, () => ({
   y: Math.random() * maxY,
   size: Math.random() * (maxNaturalSize - minSize) + minSize,
   drawnToUser: Math.random() < 0.5 ? true : false,
-  landMark: Math.floor(Math.random() * numLandmarks),
-  hand: Math.floor(Math.random() * 2),
+  landmark: Math.floor(Math.random() * numLandmarks),
+  object: Math.floor(Math.random() * numSupportedObjects),
   maxSize: Math.random() * (maxGrownSize - this.size) + this.size,
   color: `rgba(255, 255, 255, ${Math.random()})`,
 }));
@@ -188,23 +213,27 @@ function resetParticleIfOffScreen(particle) {
       particle.y = Math.random() * maxY;
     }
     particle.size = Math.random() * (maxNaturalSize - minSize) + minSize;
+    particle.landmark = Math.floor(Math.random() * numLandmarks);
   }
 }
 
 function nudgeParticleTowardsChosenLandmark(particle, resultLandmarks) {
   let nudgeFactor = 15;
   if (particle.drawnToUser === true) {
-    resultLandmarks.forEach((hand, index) => {
-      if (particle.hand == index) {
-        const deltaX = (hand[particle.landMark].x * window.innerWidth) - particle.x;
-        const deltaY = (hand[particle.landMark].y * window.innerHeight) - particle.y;
+    resultLandmarks.forEach((object, index) => {
+      if (particle.object == index) {
+        // we need to mirror the landmark around the center of the screen, so it feels like a mirror.
+        let destinationX = maxX - (object[particle.landmark].x * maxX);
+        let destinationY = (object[particle.landmark].y * maxY); // y doesn't need mirroring.
+        const deltaX = destinationX - particle.x;
+        const deltaY = destinationY - particle.y;
+
         const distance = Math.sqrt(deltaX ** 2 + deltaY ** 2);
 
         // Move the particle closer to the landmark
         particle.x += (deltaX / distance) * (Math.random()) * nudgeFactor;
         particle.y += (deltaY / distance) * (Math.random()) * nudgeFactor;
-        particle.size < particle.maxSize ? particle.size += 0. : false;
-        //        particle.size += 1;
+        particle.size < particle.maxSize ? particle.size += 0.1 : false;
       }
     });
   }
