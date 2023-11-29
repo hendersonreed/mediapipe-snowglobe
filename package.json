@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "esbuild": "esbuild src/index.html src/index.ts src/style.css --loader:.html=copy --outdir=build --bundle",
+    "esbuild": "esbuild src/index.html src/index.ts src/style.css --loader:.html=copy --loader:.task=copy --outdir=build --bundle",
     "dev": "npm run esbuild -- --watch --servedir=build  --inject:src/livereload.js",
     "build": "npm run esbuild -- --minify --sourcemap"
   },
