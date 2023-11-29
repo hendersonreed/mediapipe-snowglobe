@@ -11,7 +11,10 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-const landmarkerType = 'hands'; // could be hands, face, or pose
+
+//const landmarkerType = 'hands'; // could be hands, face, or pose
+//const landmarkerType = 'face'; // could be hands, face, or pose
+const landmarkerType = 'pose'; // could be hands, face, or pose
 
 import {
   HandLandmarker,
@@ -22,27 +25,58 @@ import {
 
 const demosSection = document.getElementById("demos");
 
-let handLandmarker = undefined;
+let landmarker = undefined;
 let webcamRunning: Boolean = false;
 
 // Before we can use HandLandmarker class we must wait for it to finish
 // loading. Machine Learning models can be large and take a moment to
 // get everything needed to run.
-const createHandLandmarker = async () => {
+const createLandmarker = async () => {
   const vision = await FilesetResolver.forVisionTasks(
     "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
   );
-  handLandmarker = await HandLandmarker.createFromOptions(vision, {
-    baseOptions: {
-      modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
-      delegate: "GPU"
-    },
-    runningMode: "VIDEO",
-    numHands: 2
-  });
+  switch (landmarkerType) {
+    case 'hands':
+      landmarker =
+        await HandLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
+            delegate: "GPU"
+          },
+          runningMode: "VIDEO",
+          numHands: 2
+        });
+      break;
+    case 'face':
+      landmarker =
+        await FaceLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
+            delegate: "GPU"
+          },
+          runningMode: "VIDEO",
+          numFaces: 2
+        });
+      break;
+    case 'pose':
+      landmarker =
+        await PoseLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task`,
+            delegate: "GPU"
+          },
+          runningMode: "VIDEO",
+          numPoses: 2
+        });
+      break;
+    default:
+      console.log("misconfigured landmarkerType");
+      break;
+  }
   demosSection.classList.remove("invisible");
 };
-createHandLandmarker();
+
+createLandmarker();
 
 
 const video = document.getElementById("webcam") as HTMLVideoElement;
@@ -64,7 +98,7 @@ if (hasGetUserMedia()) {
 
 // Enable the live webcam view and start detection.
 function enableCam(event) {
-  if (!handLandmarker) {
+  if (!landmarker) {
     console.log("Wait! objectDetector not loaded yet.");
     return;
   }
@@ -89,7 +123,7 @@ function enableCam(event) {
 
 let lastVideoTime = -1;
 let results = undefined;
-//console.log(video);
+
 async function predictWebcam() {
   canvasElement.style.width = '100vw';
   canvasElement.style.height = '100vh';
@@ -102,15 +136,25 @@ async function predictWebcam() {
   let startTimeMs = performance.now();
   if (lastVideoTime !== video.currentTime) {
     lastVideoTime = video.currentTime;
-    results = handLandmarker.detectForVideo(video, startTimeMs);
+    if (landmarker) {
+      results = landmarker.detectForVideo(video, startTimeMs);
+    }
   }
-  canvasCtx.save();
-  canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-  if (results.landmarks) {
-    drawTheStuff(results.landmarks);
-    //drawTheStuff2(results.landmarks);
+  if (canvasCtx) {
+    canvasCtx.save();
+    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+    if (results) {
+      let landmarks = undefined;
+      if (landmarkerType === 'hands') { landmarks = results.landmarks; }
+      if (landmarkerType === 'face') { landmarks = results.faceLandmarks; }
+      if (landmarkerType === 'pose') { landmarks = results.landmarks; }
+      if (landmarks) {
+        drawTheStuff(landmarks);
+        //drawTheStuff2(landmarks);
+      }
+    }
+    canvasCtx.restore();
   }
-  canvasCtx.restore();
 
   // Call this function again to keep predicting when the browser is ready.
   if (webcamRunning === true) {
@@ -120,10 +164,12 @@ async function predictWebcam() {
 
 function drawTheStuff2(resultLandmarks) {
   for (const landmarks of resultLandmarks) {
+    /*
     drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {
       color: "#FFFFFF",
       lineWidth: 5
     });
+    */
     drawLandmarks(canvasCtx, landmarks, { color: "#FF0000", lineWidth: 2 });
   }
 }
@@ -139,10 +185,10 @@ switch (landmarkerType) {
     numLandmarks = 21;
     break;
   case 'face':
-    numLandmarks = 21;
+    numLandmarks = 471;
     break;
   case 'pose':
-    numLandmarks = 21;
+    numLandmarks = 33;
     break;
   default:
     console.log("error: incorrectly configured landmarker type.");
@@ -154,21 +200,26 @@ const numSupportedObjects = 2;
 const numParticles = 2000; // Number of particles
 const maxX = window.innerWidth; // Maximum X coordinate
 const maxY = window.innerHeight; // Maximum Y coordinate
-const maxGrownSize = 25;
+const maxGrownSize = 50;
 const maxNaturalSize = 7;
 const minSize = 1;
 
 // Create an array of N particles with random coordinates
-const particlesArray = Array.from({ length: numParticles }, () => ({
-  x: Math.random() * maxX,
-  y: Math.random() * maxY,
-  size: Math.random() * (maxNaturalSize - minSize) + minSize,
-  drawnToUser: Math.random() < 0.5 ? true : false,
-  landmark: Math.floor(Math.random() * numLandmarks),
-  object: Math.floor(Math.random() * numSupportedObjects),
-  maxSize: Math.random() * (maxGrownSize - this.size) + this.size,
-  color: `rgba(255, 255, 255, ${Math.random()})`,
-}));
+const particlesArray = Array.from({ length: numParticles }, () => {
+  const size = Math.random() * (maxNaturalSize - minSize) + minSize;
+  const maxSize = Math.random() * (maxGrownSize - minSize) + minSize; // Replace scaleFactor with your actual scaling factor
+
+  return {
+    x: Math.random() * maxX,
+    y: Math.random() * maxY,
+    size: size,
+    maxSize: maxSize,
+    drawnToUser: Math.random() < 0.5,
+    landmark: Math.floor(Math.random() * numLandmarks),
+    object: Math.floor(Math.random() * numSupportedObjects),
+    color: `rgba(255, 255, 255, ${Math.random()})`
+  };
+});
 
 function drawTheStuff(resultLandmarks) {
   particlesArray.forEach(particle => {
@@ -193,12 +244,12 @@ function applyPhysics(particles, resultLandmarks) {
 
 function applyGravityAndWind(particle) {
   particle.y += Math.cos(angle + particle.size) + 1;
-  particle.x += Math.sin(angle) * 2;
+  particle.x += Math.sin(angle) * 3;
 }
 
 function resetParticleIfOffScreen(particle) {
   // reset a particle if it has fallen off screen.
-  if (particle.y > maxY || particle.x > maxX) {
+  if (particle.y > maxY || particle.x > maxX || Math.random() < 0.001) {
     if (Math.random() < 0.6) {
       particle.x = Math.random() * maxX;
       particle.y = 0;
@@ -218,7 +269,7 @@ function resetParticleIfOffScreen(particle) {
 }
 
 function nudgeParticleTowardsChosenLandmark(particle, resultLandmarks) {
-  let nudgeFactor = 15;
+  let nudgeFactor = 10;
   if (particle.drawnToUser === true) {
     resultLandmarks.forEach((object, index) => {
       if (particle.object == index) {
@@ -231,9 +282,9 @@ function nudgeParticleTowardsChosenLandmark(particle, resultLandmarks) {
         const distance = Math.sqrt(deltaX ** 2 + deltaY ** 2);
 
         // Move the particle closer to the landmark
-        particle.x += (deltaX / distance) * (Math.random()) * nudgeFactor;
-        particle.y += (deltaY / distance) * (Math.random()) * nudgeFactor;
-        particle.size < particle.maxSize ? particle.size += 0.1 : false;
+        particle.x += (deltaX / distance) * nudgeFactor;
+        particle.y += (deltaY / distance) * nudgeFactor;
+        particle.size < particle.maxSize ? particle.size += 1 : false;
       }
     });
   }
