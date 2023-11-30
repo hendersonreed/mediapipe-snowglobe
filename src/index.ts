@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//const landmarkerType = 'hands'; // could be hands, face, or pose
+const numSupportedObjects = 6;
+const landmarkerType = 'hands'; // could be hands, face, or pose
 //const landmarkerType = 'face'; // could be hands, face, or pose
-const landmarkerType = 'pose'; // could be hands, face, or pose
+//const landmarkerType = 'pose'; // could be hands, face, or pose
 
 import {
   HandLandmarker,
@@ -22,8 +23,6 @@ import {
   PoseLandmarker,
   FilesetResolver
 } from "@mediapipe/tasks-vision";
-
-const demosSection = document.getElementById("demos");
 
 let landmarker = undefined;
 let webcamRunning: Boolean = false;
@@ -44,7 +43,7 @@ const createLandmarker = async () => {
             delegate: "GPU"
           },
           runningMode: "VIDEO",
-          numHands: 2
+          numHands: numSupportedObjects
         });
       break;
     case 'face':
@@ -55,7 +54,7 @@ const createLandmarker = async () => {
             delegate: "GPU"
           },
           runningMode: "VIDEO",
-          numFaces: 2
+          numFaces: numSupportedObjects
         });
       break;
     case 'pose':
@@ -66,14 +65,13 @@ const createLandmarker = async () => {
             delegate: "GPU"
           },
           runningMode: "VIDEO",
-          numPoses: 2
+          numPoses: numSupportedObjects
         });
       break;
     default:
       console.log("misconfigured landmarkerType");
       break;
   }
-  demosSection.classList.remove("invisible");
 };
 
 createLandmarker();
@@ -114,6 +112,12 @@ function enableCam(event) {
     video: true
   };
 
+  // hide the "click to start message"
+  let clickMessage = document.getElementById('clickMessage');
+  if (clickMessage) {
+    clickMessage.style.display = "none";
+  }
+
   // Activate the webcam stream.
   navigator.mediaDevices.getUserMedia(constraints).then((stream) => {
     video.srcObject = stream;
@@ -150,7 +154,7 @@ async function predictWebcam() {
       if (landmarkerType === 'pose') { landmarks = results.landmarks; }
       if (landmarks) {
         drawTheStuff(landmarks);
-        //drawTheStuff2(landmarks);
+        //        drawTheStuff2(landmarks);
       }
     }
     canvasCtx.restore();
@@ -195,12 +199,10 @@ switch (landmarkerType) {
     break;
 }
 
-const numSupportedObjects = 2;
-
-const numParticles = 2000; // Number of particles
+const numParticles = 1000; // Number of particles
 const maxX = window.innerWidth; // Maximum X coordinate
 const maxY = window.innerHeight; // Maximum Y coordinate
-const maxGrownSize = 50;
+const maxGrownSize = 17;
 const maxNaturalSize = 7;
 const minSize = 1;
 
@@ -214,7 +216,7 @@ const particlesArray = Array.from({ length: numParticles }, () => {
     y: Math.random() * maxY,
     size: size,
     maxSize: maxSize,
-    drawnToUser: Math.random() < 0.5,
+    drawnToUser: Math.random() < 0.20,
     landmark: Math.floor(Math.random() * numLandmarks),
     object: Math.floor(Math.random() * numSupportedObjects),
     color: `rgba(255, 255, 255, ${Math.random()})`
@@ -249,7 +251,7 @@ function applyGravityAndWind(particle) {
 
 function resetParticleIfOffScreen(particle) {
   // reset a particle if it has fallen off screen.
-  if (particle.y > maxY || particle.x > maxX || Math.random() < 0.001) {
+  if (particle.y > maxY || particle.x > maxX) {
     if (Math.random() < 0.6) {
       particle.x = Math.random() * maxX;
       particle.y = 0;
@@ -268,24 +270,30 @@ function resetParticleIfOffScreen(particle) {
   }
 }
 
+function flipWithProbability(original, probability) {
+  return Math.random() < probability ? !original : original;
+}
+
 function nudgeParticleTowardsChosenLandmark(particle, resultLandmarks) {
-  let nudgeFactor = 10;
+  let nudgeFactor = 8;
   if (particle.drawnToUser === true) {
     resultLandmarks.forEach((object, index) => {
       if (particle.object == index) {
         // we need to mirror the landmark around the center of the screen, so it feels like a mirror.
         let destinationX = maxX - (object[particle.landmark].x * maxX);
         let destinationY = (object[particle.landmark].y * maxY); // y doesn't need mirroring.
-        const deltaX = destinationX - particle.x;
-        const deltaY = destinationY - particle.y;
 
-        const distance = Math.sqrt(deltaX ** 2 + deltaY ** 2);
+        function lerp(start, end, t) {
+          return (1 - t) * start + t * end;
+        }
+        let smoothingFactor = 0.05;
+        particle.x = lerp(particle.x, destinationX, smoothingFactor);
+        particle.y = lerp(particle.y, destinationY, smoothingFactor);
 
-        // Move the particle closer to the landmark
-        particle.x += (deltaX / distance) * nudgeFactor;
-        particle.y += (deltaY / distance) * nudgeFactor;
         particle.size < particle.maxSize ? particle.size += 1 : false;
       }
     });
   }
+  particle.drawnToUser = flipWithProbability(particle.drawnToUser, 0.001); // sometimes they stop being drawn to a hand.
 }
+
