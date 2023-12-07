@@ -108,8 +108,13 @@ function enableCam(event) {
   }
 
   // getUsermedia parameters.
+  // drastically reduced to improve performance (I think it's working?)
   const constraints = {
-    video: true
+    video: {
+      width: { ideal: 160 },
+      height: { ideal: 120 },
+      frameRate: { ideal: 15 },
+    }
   };
 
   // hide the "click to start message"
@@ -154,7 +159,7 @@ async function predictWebcam() {
       if (landmarkerType === 'pose') { landmarks = results.landmarks; }
       if (landmarks) {
         drawTheStuff(landmarks);
-        //        drawTheStuff2(landmarks);
+        //drawTheStuff2(landmarks);
       }
     }
     canvasCtx.restore();
@@ -163,18 +168,6 @@ async function predictWebcam() {
   // Call this function again to keep predicting when the browser is ready.
   if (webcamRunning === true) {
     window.requestAnimationFrame(predictWebcam);
-  }
-}
-
-function drawTheStuff2(resultLandmarks) {
-  for (const landmarks of resultLandmarks) {
-    /*
-    drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {
-      color: "#FFFFFF",
-      lineWidth: 5
-    });
-    */
-    drawLandmarks(canvasCtx, landmarks, { color: "#FF0000", lineWidth: 2 });
   }
 }
 
@@ -199,7 +192,7 @@ switch (landmarkerType) {
     break;
 }
 
-const numParticles = 1000; // Number of particles
+const numParticles = 250; // Number of particles
 const maxX = window.innerWidth; // Maximum X coordinate
 const maxY = window.innerHeight; // Maximum Y coordinate
 const maxGrownSize = 17;
@@ -216,40 +209,38 @@ const particlesArray = Array.from({ length: numParticles }, () => {
     y: Math.random() * maxY,
     size: size,
     maxSize: maxSize,
-    drawnToUser: Math.random() < 0.20,
+    drawnToUser: Math.random() < 0.55,
     landmark: Math.floor(Math.random() * numLandmarks),
     object: Math.floor(Math.random() * numSupportedObjects),
     color: `rgba(255, 255, 255, ${Math.random()})`
   };
 });
 
-function drawTheStuff(resultLandmarks) {
+let angle = 0;
+async function drawTheStuff(resultLandmarks) {
+  angle += 0.02;
   particlesArray.forEach(particle => {
     canvasCtx.beginPath();
     canvasCtx.arc(particle.x, particle.y, particle.size, 0, 2 * Math.PI);
     canvasCtx.fillStyle = particle.color;
     canvasCtx.fill();
     canvasCtx.closePath();
-  });
-  applyPhysics(particlesArray, resultLandmarks);
-}
-
-let angle = 0;
-function applyPhysics(particles, resultLandmarks) {
-  angle += 0.01;
-  particles.forEach(particle => {
-    applyGravityAndWind(particle);
-    nudgeParticleTowardsChosenLandmark(particle, resultLandmarks)
-    resetParticleIfOffScreen(particle);
+    applyPhysics(particle, resultLandmarks);
   });
 }
 
-function applyGravityAndWind(particle) {
+async function applyPhysics(particle, resultLandmarks) {
+  applyGravityAndWind(particle);
+  nudgeParticleTowardsChosenLandmark(particle, resultLandmarks)
+  resetParticleIfOffScreen(particle);
+}
+
+async function applyGravityAndWind(particle) {
   particle.y += Math.cos(angle + particle.size) + 1;
   particle.x += Math.sin(angle) * 3;
 }
 
-function resetParticleIfOffScreen(particle) {
+async function resetParticleIfOffScreen(particle) {
   // reset a particle if it has fallen off screen.
   if (particle.y > maxY || particle.x > maxX) {
     if (Math.random() < 0.6) {
@@ -270,30 +261,28 @@ function resetParticleIfOffScreen(particle) {
   }
 }
 
-function flipWithProbability(original, probability) {
+function flipWithProbability(original: boolean, probability: number) {
   return Math.random() < probability ? !original : original;
 }
 
-function nudgeParticleTowardsChosenLandmark(particle, resultLandmarks) {
-  let nudgeFactor = 8;
+async function nudgeParticleTowardsChosenLandmark(particle, resultLandmarks) {
   if (particle.drawnToUser === true) {
-    resultLandmarks.forEach((object, index) => {
-      if (particle.object == index) {
-        // we need to mirror the landmark around the center of the screen, so it feels like a mirror.
-        let destinationX = maxX - (object[particle.landmark].x * maxX);
-        let destinationY = (object[particle.landmark].y * maxY); // y doesn't need mirroring.
+    let object = resultLandmarks[particle.object]
+    if (object) {
+      let destinationX = maxX - (object[particle.landmark].x * maxX); // x needs to be mirrored to behave like... a mirror.
+      let destinationY = (object[particle.landmark].y * maxY); // y doesn't need mirroring.
 
-        function lerp(start, end, t) {
-          return (1 - t) * start + t * end;
-        }
-        let smoothingFactor = 0.05;
-        particle.x = lerp(particle.x, destinationX, smoothingFactor);
-        particle.y = lerp(particle.y, destinationY, smoothingFactor);
-
-        particle.size < particle.maxSize ? particle.size += 1 : false;
+      function lerp(start, end, t) {
+        return (1 - t) * start + t * end;
       }
-    });
-  }
-  particle.drawnToUser = flipWithProbability(particle.drawnToUser, 0.001); // sometimes they stop being drawn to a hand.
-}
 
+      let smoothingFactor = 0.02;
+      particle.x = lerp(particle.x, destinationX, smoothingFactor);
+      particle.y = lerp(particle.y, destinationY, smoothingFactor);
+
+      particle.size < particle.maxSize ? particle.size += 1 : false;
+    }
+  }
+  // we want some particles to change their drawn-to-user status
+  particle.drawnToUser = flipWithProbability(particle.drawnToUser, 0.001);
+}
