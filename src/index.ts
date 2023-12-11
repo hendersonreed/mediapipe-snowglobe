@@ -1,5 +1,4 @@
 // Copyright 2023 The MediaPipe Authors.
-
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -192,7 +191,7 @@ switch (landmarkerType) {
     break;
 }
 
-const numParticles = 250; // Number of particles
+const numParticles = 250 / 2; // Number of particles
 const maxX = window.innerWidth; // Maximum X coordinate
 const maxY = window.innerHeight; // Maximum Y coordinate
 const maxGrownSize = 17;
@@ -200,7 +199,7 @@ const maxNaturalSize = 7;
 const minSize = 1;
 
 // Create an array of N particles with random coordinates
-const particlesArray = Array.from({ length: numParticles }, () => {
+const driftingParticles = Array.from({ length: numParticles }, () => {
   const size = Math.random() * (maxNaturalSize - minSize) + minSize;
   const maxSize = Math.random() * (maxGrownSize - minSize) + minSize; // Replace scaleFactor with your actual scaling factor
 
@@ -209,16 +208,35 @@ const particlesArray = Array.from({ length: numParticles }, () => {
     y: Math.random() * maxY,
     size: size,
     maxSize: maxSize,
-    drawnToUser: Math.random() < 0.55,
+    drawnToUser: false,
     landmark: Math.floor(Math.random() * numLandmarks),
     object: Math.floor(Math.random() * numSupportedObjects),
     color: `rgba(255, 255, 255, ${Math.random()})`
   };
 });
 
+
+const particlesDrawnToUser = Array.from({ length: numParticles }, () => {
+  const size = Math.random() * (maxNaturalSize - minSize) + minSize;
+  const maxSize = Math.random() * (maxGrownSize - minSize) + minSize; // Replace scaleFactor with your actual scaling factor
+
+  return {
+    x: Math.random() * maxX,
+    y: Math.random() * maxY,
+    size: size,
+    maxSize: maxSize,
+    drawnToUser: true,
+    landmark: Math.floor(Math.random() * numLandmarks),
+    object: Math.floor(Math.random() * numSupportedObjects),
+    color: `rgba(255, 255, 255, ${Math.random()})`
+  };
+});
+
+const particlesArray = driftingParticles.concat(particlesDrawnToUser);
+
 let angle = 0;
 async function drawTheStuff(resultLandmarks) {
-  angle += 0.02;
+  angle += 0.01;
   particlesArray.forEach(particle => {
     canvasCtx.beginPath();
     canvasCtx.arc(particle.x, particle.y, particle.size, 0, 2 * Math.PI);
@@ -237,7 +255,7 @@ async function applyPhysics(particle, resultLandmarks) {
 
 async function applyGravityAndWind(particle) {
   particle.y += Math.cos(angle + particle.size) + 1;
-  particle.x += Math.sin(angle) * 3;
+  particle.x += Math.sin(angle) * 1.5;
 }
 
 async function resetParticleIfOffScreen(particle) {
@@ -247,7 +265,7 @@ async function resetParticleIfOffScreen(particle) {
       particle.x = Math.random() * maxX;
       particle.y = 0;
     }
-    else {
+    else { // some particles get to come in from the side.
       if (Math.sin(angle) > 0) {
         particle.x = -5;
       }
@@ -283,6 +301,6 @@ async function nudgeParticleTowardsChosenLandmark(particle, resultLandmarks) {
       particle.size < particle.maxSize ? particle.size += 1 : false;
     }
   }
-  // we want some particles to change their drawn-to-user status
+  // we want all particles to change their drawn-to-user status occasionally
   particle.drawnToUser = flipWithProbability(particle.drawnToUser, 0.001);
 }
