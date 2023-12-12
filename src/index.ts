@@ -100,10 +100,10 @@ function enableCam(event) {
     return;
   }
 
-  if (webcamRunning === true) {
-    webcamRunning = false;
-  } else {
+  if (webcamRunning === false) {
     webcamRunning = true;
+  } else {
+    return;
   }
 
   // getUsermedia parameters.
@@ -276,6 +276,8 @@ function resetParticleIfOffScreen(particle) {
     }
     particle.size = Math.random() * (maxNaturalSize - minSize) + minSize;
     particle.landmark = Math.floor(Math.random() * numLandmarks);
+    // we want all particles to change their drawn-to-user status occasionally. They should do this when they're being reset.
+    particle.drawnToUser = flipWithProbability(particle.drawnToUser, 0.25);
   }
 }
 
@@ -299,8 +301,8 @@ function nudgeParticleTowardsChosenLandmark(particle, resultLandmarks) {
       particle.y = lerp(particle.y, destinationY, smoothingFactor);
 
       particle.size < particle.maxSize ? particle.size += 1 : false;
+      // we want some particles to leave the hand.
+      particle.drawnToUser = flipWithProbability(particle.drawnToUser, 0.001);
     }
   }
-  // we want all particles to change their drawn-to-user status occasionally
-  particle.drawnToUser = flipWithProbability(particle.drawnToUser, 0.001);
 }
