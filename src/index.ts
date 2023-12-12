@@ -142,7 +142,8 @@ async function predictWebcam() {
 
   // Now let's start detecting the stream.
   let startTimeMs = performance.now();
-  if (lastVideoTime !== video.currentTime) {
+  const delta = video.currentTime - lastVideoTime;
+  if (delta > 0.08) { // don't try to detect hands every frame.
     lastVideoTime = video.currentTime;
     if (landmarker) {
       results = landmarker.detectForVideo(video, startTimeMs);
@@ -158,7 +159,6 @@ async function predictWebcam() {
       if (landmarkerType === 'pose') { landmarks = results.landmarks; }
       if (landmarks) {
         drawTheStuff(landmarks);
-        //drawTheStuff2(landmarks);
       }
     }
     canvasCtx.restore();
@@ -247,18 +247,18 @@ async function drawTheStuff(resultLandmarks) {
   });
 }
 
-async function applyPhysics(particle, resultLandmarks) {
+function applyPhysics(particle, resultLandmarks) {
   applyGravityAndWind(particle);
   nudgeParticleTowardsChosenLandmark(particle, resultLandmarks)
   resetParticleIfOffScreen(particle);
 }
 
-async function applyGravityAndWind(particle) {
+function applyGravityAndWind(particle) {
   particle.y += Math.cos(angle + particle.size) + 1;
   particle.x += Math.sin(angle) * 1.5;
 }
 
-async function resetParticleIfOffScreen(particle) {
+function resetParticleIfOffScreen(particle) {
   // reset a particle if it has fallen off screen.
   if (particle.y > maxY || particle.x > maxX) {
     if (Math.random() < 0.6) {
@@ -283,7 +283,7 @@ function flipWithProbability(original: boolean, probability: number) {
   return Math.random() < probability ? !original : original;
 }
 
-async function nudgeParticleTowardsChosenLandmark(particle, resultLandmarks) {
+function nudgeParticleTowardsChosenLandmark(particle, resultLandmarks) {
   if (particle.drawnToUser === true) {
     let object = resultLandmarks[particle.object]
     if (object) {
