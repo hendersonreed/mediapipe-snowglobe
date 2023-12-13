@@ -108,13 +108,7 @@ function enableCam(event) {
 
   // getUsermedia parameters.
   // drastically reduced to improve performance (I think it's working?)
-  const constraints = {
-    video: {
-      width: { ideal: 160 },
-      height: { ideal: 120 },
-      frameRate: { ideal: 15 },
-    }
-  };
+  const constraints = { video };
 
   // hide the "click to start message"
   let clickMessage = document.getElementById('clickMessage');
@@ -143,7 +137,7 @@ async function predictWebcam() {
   // Now let's start detecting the stream.
   let startTimeMs = performance.now();
   const delta = video.currentTime - lastVideoTime;
-  if (delta > 0.08) { // don't try to detect hands every frame.
+  if (delta > .08) { // don't try to detect hands every frame.
     lastVideoTime = video.currentTime;
     if (landmarker) {
       results = landmarker.detectForVideo(video, startTimeMs);
@@ -165,8 +159,9 @@ async function predictWebcam() {
   }
 
   // Call this function again to keep predicting when the browser is ready.
+  const fps = 30;
   if (webcamRunning === true) {
-    window.requestAnimationFrame(predictWebcam);
+    setTimeout(window.requestAnimationFrame(predictWebcam), 1000 / fps);
   }
 }
 
@@ -191,7 +186,8 @@ switch (landmarkerType) {
     break;
 }
 
-const numParticles = 250 / 2; // Number of particles
+const numDriftingParticles = 500; // Number of particles
+const numParticlesDrawnToUser = 250; // Number of particles
 const maxX = window.innerWidth; // Maximum X coordinate
 const maxY = window.innerHeight; // Maximum Y coordinate
 const maxGrownSize = 17;
@@ -199,7 +195,7 @@ const maxNaturalSize = 7;
 const minSize = 1;
 
 // Create an array of N particles with random coordinates
-const driftingParticles = Array.from({ length: numParticles }, () => {
+const driftingParticles = Array.from({ length: numDriftingParticles }, () => {
   const size = Math.random() * (maxNaturalSize - minSize) + minSize;
   const maxSize = Math.random() * (maxGrownSize - minSize) + minSize; // Replace scaleFactor with your actual scaling factor
 
@@ -216,7 +212,7 @@ const driftingParticles = Array.from({ length: numParticles }, () => {
 });
 
 
-const particlesDrawnToUser = Array.from({ length: numParticles }, () => {
+const particlesDrawnToUser = Array.from({ length: numParticlesDrawnToUser }, () => {
   const size = Math.random() * (maxNaturalSize - minSize) + minSize;
   const maxSize = Math.random() * (maxGrownSize - minSize) + minSize; // Replace scaleFactor with your actual scaling factor
 
@@ -296,7 +292,7 @@ function nudgeParticleTowardsChosenLandmark(particle, resultLandmarks) {
         return (1 - t) * start + t * end;
       }
 
-      let smoothingFactor = 0.02;
+      let smoothingFactor = 0.04;
       particle.x = lerp(particle.x, destinationX, smoothingFactor);
       particle.y = lerp(particle.y, destinationY, smoothingFactor);
 
