@@ -1,80 +1,21 @@
-// Copyright 2023 The MediaPipe Authors.
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+const hasGetUserMedia = () => !!navigator.mediaDevices?.getUserMedia;
+if (hasGetUserMedia()) {
+  document.addEventListener("click", enableCam);
+} else {
+  console.warn("getUserMedia() is not supported by your browser");
+}
 
-//      http://www.apache.org/licenses/LICENSE-2.0
-
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
 
 const numSupportedObjects = 6;
 const landmarkerType = 'hands'; // could be hands, face, or pose
 //const landmarkerType = 'face'; // could be hands, face, or pose
 //const landmarkerType = 'pose'; // could be hands, face, or pose
 
-import {
-  HandLandmarker,
-  FaceLandmarker,
-  PoseLandmarker,
-  FilesetResolver
-} from "@mediapipe/tasks-vision";
 
-let landmarker = undefined;
-let webcamRunning: Boolean = false;
-
-// Before we can use HandLandmarker class we must wait for it to finish
-// loading. Machine Learning models can be large and take a moment to
-// get everything needed to run.
-const createLandmarker = async () => {
-  const vision = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
-  );
-  switch (landmarkerType) {
-    case 'hands':
-      landmarker =
-        await HandLandmarker.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
-            delegate: "GPU"
-          },
-          runningMode: "VIDEO",
-          numHands: numSupportedObjects
-        });
-      break;
-    case 'face':
-      landmarker =
-        await FaceLandmarker.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
-            delegate: "GPU"
-          },
-          runningMode: "VIDEO",
-          numFaces: numSupportedObjects
-        });
-      break;
-    case 'pose':
-      landmarker =
-        await PoseLandmarker.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task`,
-            delegate: "GPU"
-          },
-          runningMode: "VIDEO",
-          numPoses: numSupportedObjects
-        });
-      break;
-    default:
-      console.log("misconfigured landmarkerType");
-      break;
-  }
-};
-
-createLandmarker();
-
+let worker;
+if (window.Worker) {
+  worker = new Worker('landmarkWorker.js');
+}
 
 const video = document.getElementById("webcam") as HTMLVideoElement;
 const canvasElement = document.getElementById(
@@ -82,24 +23,12 @@ const canvasElement = document.getElementById(
 ) as HTMLCanvasElement;
 const canvasCtx = canvasElement.getContext("2d");
 
-// Check if webcam access is supported.
-const hasGetUserMedia = () => !!navigator.mediaDevices?.getUserMedia;
+let webcamRunning: Boolean = false;
+let lastVideoTime = -1;
 
-// If webcam supported, add event listener to button for when user
-// wants to activate it.
-if (hasGetUserMedia()) {
-  document.addEventListener("click", enableCam);
-} else {
-  console.warn("getUserMedia() is not supported by your browser");
-}
 
 // Enable the live webcam view and start detection.
-function enableCam(event) {
-  if (!landmarker) {
-    console.log("Wait! objectDetector not loaded yet.");
-    return;
-  }
-
+function enableCam() {
   if (webcamRunning === false) {
     webcamRunning = true;
   } else {
@@ -107,13 +36,8 @@ function enableCam(event) {
   }
 
   // getUsermedia parameters.
-  // drastically reduced to improve performance (I think it's working?)
   const constraints = {
-    video: {
-      width: { ideal: 160 },
-      height: { ideal: 120 },
-      frameRate: { ideal: 15 },
-    }
+    video: { video }
   };
 
   // hide the "click to start message"
@@ -122,15 +46,13 @@ function enableCam(event) {
     clickMessage.style.display = "none";
   }
 
-  // Activate the webcam stream.
   navigator.mediaDevices.getUserMedia(constraints).then((stream) => {
     video.srcObject = stream;
-    video.addEventListener("loadeddata", predictWebcam);
+    video.addEventListener("loadeddata", () => {
+      predictWebcam();
+    });
   });
 }
-
-let lastVideoTime = -1;
-let results = undefined;
 
 async function predictWebcam() {
   canvasElement.style.width = '100vw';
@@ -139,36 +61,56 @@ async function predictWebcam() {
   canvasElement.style.display = 'block';
   canvasElement.width = window.innerWidth;
   canvasElement.height = window.innerHeight;
-
-  // Now let's start detecting the stream.
-  let startTimeMs = performance.now();
-  const delta = video.currentTime - lastVideoTime;
-  if (delta > 0.08) { // don't try to detect hands every frame.
-    lastVideoTime = video.currentTime;
-    if (landmarker) {
-      results = landmarker.detectForVideo(video, startTimeMs);
-    }
-  }
   if (canvasCtx) {
+    // Update the animation with the results from the WebWorker
     canvasCtx.save();
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+    drawTheStuff();
     if (results) {
-      let landmarks = undefined;
+      let landmarks;
       if (landmarkerType === 'hands') { landmarks = results.landmarks; }
       if (landmarkerType === 'face') { landmarks = results.faceLandmarks; }
       if (landmarkerType === 'pose') { landmarks = results.landmarks; }
       if (landmarks) {
-        drawTheStuff(landmarks);
+        particlesArray.forEach((particle) => {
+          nudgeParticleTowardsChosenLandmark(particle, landmarks);
+        });
       }
     }
-    canvasCtx.restore();
+  }
+  canvasCtx.restore();
+  let image = await createImageBitmap(video);
+  if (worker) {
+    worker.postMessage({ image: image });
   }
 
+
   // Call this function again to keep predicting when the browser is ready.
+  let fps = 60;
   if (webcamRunning === true) {
-    window.requestAnimationFrame(predictWebcam);
+    setTimeout(() => {
+      requestAnimationFrame(predictWebcam);
+    }, 1000 / fps);
   }
 }
+
+// save result landmarkers to global var
+let results;
+if (worker) {
+  worker.addEventListener('message', (event) => {
+    results = event.data;
+  });
+}
+
+
+
+
+
+
+
+
+
+// animation constants
 
 /*
  * this is agnostic to the type of landmark, as long as we set 
@@ -191,15 +133,16 @@ switch (landmarkerType) {
     break;
 }
 
-const numParticles = 250 / 2; // Number of particles
+const numDriftingParticles = 500; // Number of particles
+const numParticlesDrawnToUser = 250; // Number of particles
 const maxX = window.innerWidth; // Maximum X coordinate
 const maxY = window.innerHeight; // Maximum Y coordinate
-const maxGrownSize = 17;
+const maxGrownSize = 14;
 const maxNaturalSize = 7;
 const minSize = 1;
 
 // Create an array of N particles with random coordinates
-const driftingParticles = Array.from({ length: numParticles }, () => {
+const driftingParticles = Array.from({ length: numDriftingParticles }, () => {
   const size = Math.random() * (maxNaturalSize - minSize) + minSize;
   const maxSize = Math.random() * (maxGrownSize - minSize) + minSize; // Replace scaleFactor with your actual scaling factor
 
@@ -216,7 +159,7 @@ const driftingParticles = Array.from({ length: numParticles }, () => {
 });
 
 
-const particlesDrawnToUser = Array.from({ length: numParticles }, () => {
+const particlesDrawnToUser = Array.from({ length: numParticlesDrawnToUser }, () => {
   const size = Math.random() * (maxNaturalSize - minSize) + minSize;
   const maxSize = Math.random() * (maxGrownSize - minSize) + minSize; // Replace scaleFactor with your actual scaling factor
 
@@ -234,8 +177,11 @@ const particlesDrawnToUser = Array.from({ length: numParticles }, () => {
 
 const particlesArray = driftingParticles.concat(particlesDrawnToUser);
 
+
+// animation logic
+
 let angle = 0;
-async function drawTheStuff(resultLandmarks) {
+async function drawTheStuff() {
   angle += 0.01;
   particlesArray.forEach(particle => {
     canvasCtx.beginPath();
@@ -243,13 +189,12 @@ async function drawTheStuff(resultLandmarks) {
     canvasCtx.fillStyle = particle.color;
     canvasCtx.fill();
     canvasCtx.closePath();
-    applyPhysics(particle, resultLandmarks);
+    applyPhysics(particle);
   });
 }
 
-function applyPhysics(particle, resultLandmarks) {
+function applyPhysics(particle) {
   applyGravityAndWind(particle);
-  nudgeParticleTowardsChosenLandmark(particle, resultLandmarks)
   resetParticleIfOffScreen(particle);
 }
 
@@ -296,7 +241,7 @@ function nudgeParticleTowardsChosenLandmark(particle, resultLandmarks) {
         return (1 - t) * start + t * end;
       }
 
-      let smoothingFactor = 0.02;
+      let smoothingFactor = 0.04;
       particle.x = lerp(particle.x, destinationX, smoothingFactor);
       particle.y = lerp(particle.y, destinationY, smoothingFactor);
 
